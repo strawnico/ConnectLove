@@ -1,50 +1,71 @@
 import Head from "next/head";
-import Image from "next/image";
 import styles from "../styles/Home.module.css";
-import { initializeApp } from "firebase/app";
-import { firebaseConfig } from "../config/firebase";
-import { getFirestore, onSnapshot } from "firebase/firestore";
+import { onSnapshot, query } from "firebase/firestore";
 import { collection, addDoc, getDocs } from "firebase/firestore";
 import { useEffect, useState } from "react";
+import { db, app, messaging } from "../utils/firebase";
+import Post from "../components/Post";
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+function subscribeMessages(setMessages, registration) {
+  console.log("Subscribing..."); 
+  const messagesCollection = collection(db, "messages");
+  const q = query(messagesCollection);
+  const unsubscribe = onSnapshot(q, (querySnapshot) => {
+    console.log("Fetching update...");
+    const mensagens = [];
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      mensagens.push({ ...data, id: doc.id });
+    });
+    mensagens.sort(function (x, y) {
+      return y.createdAt - x.createdAt;
+    });
+    setMessages(mensagens);
+    if (!registration) return;
+    if (Notification.permission == "granted") {
+      registration.showNotification("Nova mensagem", {
+        body: "Entre e veja sua nova mensagem de amor!",
+      });
+    }
+  });
+  return () => {
+    console.log("Unsubscring...");
+    unsubscribe();
+  };
+}
 
-const db = getFirestore(app);
-
-const loader = ({ src }) => {
-  return `${src}`;
-};
+function requestPermission() {
+  console.log("Request permission...");
+  Notification.requestPermission().then((permission) => {
+    if (permission == "granted") {
+      console.log("Notification permission granted!");
+    }
+  });
+}
 
 export default function Home() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState([]);
   const [user, setUser] = useState({});
-
-  const unsub = onSnapshot(collection(db, "messages"), (col) => {
-    if (Notification.permission != "granted") return;
-    const text = `Oiii seu amor postou uma nova mensagem`;
-    const notification = new Notification("Nova mensagem", {
-      body: text,
-    });
-    fetchData();
-  });
-
-  const fetchData = async () => {
-    const lista = [];
-    const querySnapshot = await getDocs(collection(db, "messages"));
-    querySnapshot.forEach((doc) => {
-      lista.push({ ...doc.data(), id: doc.id });
-    });
-    lista.sort(function (x, y) {
-      return y.createdAt - x.createdAt;
-    });
-    setMessages(lista);
-  };
+  const [registration, setRegistration] = useState(null);
 
   useEffect(() => {
-    fetchData();
-    Notification.requestPermission();
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").then(
+        function (registration) {
+          console.log(
+            "Service Worker registration successful with scope: ",
+            registration.scope
+          );
+          setRegistration(registration);
+          requestPermission();
+        },
+        function (err) {
+          console.log("Service Worker registration failed: ", err);
+        }
+      );
+    }
+    return subscribeMessages(setMessages, registration);
   }, []);
 
   const addMessage = async () => {
@@ -56,6 +77,7 @@ export default function Home() {
         message: input,
         createdAt: Date.now(),
       });
+      setInput("");
     } catch (error) {
       console.error(error);
     }
@@ -68,16 +90,17 @@ export default function Home() {
         <link rel="icon" href="/favicon.ico" />
       </Head>
       <header className="w-full p-6 border-b">
-        <h1 className="font-plus text-gray-900 text-2xl">
-          Connect <span className="text-red-500">Love</span>
+        <h1 className="font-plus text-gray-900 font-semibold text-2xl">
+          Connect <span className="text-red-500 font-bold font-plus">Love</span>
         </h1>
       </header>
       {user.name ? (
         <main className="flex justify-center w-full p-4">
-          <div className="w-96 flex flex-col">
+          <div className="w-128 flex flex-col">
             <textarea
               className="w-full px-4 py-3 border-2 transition rounded-md bg-gray-100 border-gray-100 outline-none focus:border-red-500 focus:bg-white"
               onChange={(e) => setInput(e.target.value)}
+              value={input}
               placeholder="Envie uma mensagem de amor"
             />
             <button
@@ -86,61 +109,22 @@ export default function Home() {
             >
               Enviar
             </button>
+            <h2 className="font-semibold text-gray-900 font-plus text-xl">
+              Posts
+            </h2>
             <div className="flex flex-col border-b mt-4">
               {messages.map((msg) => {
-                return (
-                  <div
-                    key={msg.id}
-                    className="p-4 flex flex-col w-full border gap-2 border-b-0"
-                  >
-                    <div className="flex gap-2 items-center">
-                      {msg.name == "João" ? (
-                        <Image
-                          width={42}
-                          className="rounded-full"
-                          height={42}
-                          loader={loader}
-                          alt={"Avatar"}
-                          src={
-                            "https://cdn.discordapp.com/attachments/826962247968096316/1049126964809707530/7a76e2af4dd9e5a5081315d5102d5304.png"
-                          }
-                        ></Image>
-                      ) : (
-                        <Image
-                          className="rounded-full"
-                          width={42}
-                          loader={loader}
-                          alt={"Avatar"}
-                          height={42}
-                          src={
-                            "https://cdn.discordapp.com/attachments/826962247968096316/1049127213976539196/cc8b47e894c99416664247f39c32294a.png"
-                          }
-                        ></Image>
-                      )}
-                      <div className="flex flex-col gap-0">
-                        <span className="font-bold font-plus text-gray-800">
-                          {msg.name}
-                        </span>
-                        <span className="font-normal text-sm font-plus text-gray-400">
-                          {msg.arroba}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="text-gray-900 font-plus font-regular">
-                      {msg.message}
-                    </span>
-                  </div>
-                );
+                return <Post key={msg.id} post={msg}></Post>;
               })}
             </div>
           </div>
         </main>
       ) : (
         <main className="flex justify-center w-full p-4">
-          <div className="flex flex-col gap-4 w-96">
+          <div className="flex flex-col gap-4 w-128">
             <button
               onClick={() => setUser({ name: "João", arroba: "@joao_o_sol" })}
-              className="border-2 border-gray-300 text-gray-700 w-full font-plus rounded-md font-medium flex justify-between items-center p-4 transition hover:border-red-500"
+              className="border-2 border-gray-300 text-gray-700 w-full font-plus rounded-md font-medium flex justify-between items-center p-4 transition active:bg-red-50 hover:border-red-500"
             >
               João
               <span className="font-plus text-sm text-gray-400">Continuar</span>
@@ -149,7 +133,7 @@ export default function Home() {
               onClick={() =>
                 setUser({ name: "Nicole", arroba: "@nicole_a_lua" })
               }
-              className="border-2 border-gray-300 text-gray-700 w-full font-plus rounded-md font-medium flex justify-between items-center p-4 transition hover:border-red-500"
+              className="border-2 border-gray-300 text-gray-700 w-full font-plus rounded-md font-medium flex justify-between items-center p-4 transition active:bg-red-50 hover:border-red-500"
             >
               Nicole
               <span className="font-plus text-sm text-gray-400">Continuar</span>

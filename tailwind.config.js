@@ -10,6 +10,9 @@ module.exports = {
         'plus': ['Plus Jakarta Sans', 'sans-serif']
       }
     },
+    width: {
+      '128': '32rem' 
+    }
   },
   plugins: [],
 };
